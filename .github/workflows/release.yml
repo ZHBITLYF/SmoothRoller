@@ -58,7 +58,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SmoothRoller-v${{ needs.build.outputs.version }}-win-x64
+          name: SmoothRoller-v${{ steps.version.outputs.version }}-win-x64
           path: |
             ${{ steps.zip.outputs.zip_path }}
             dist/win-x64/**
