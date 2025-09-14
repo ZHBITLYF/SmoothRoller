@@ -88,6 +88,6 @@ jobs:
             - 内存/体积优化: 已关闭 ReadyToRun、启用单文件、关闭裁剪（WinForms 不支持裁剪）
           files: |
             release_assets/SmoothRoller_v${{ needs.build.outputs.version }}_win-x64.zip
-          release_assets/**/SmoothRoller.exe
+            release_assets/**/SmoothRoller.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
