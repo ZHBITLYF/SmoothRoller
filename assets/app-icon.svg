@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <!-- 主渐变 -->
+    <linearGradient id="mouseGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4A90E2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2C5F8A;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- 水流渐变 -->
+    <linearGradient id="waterFlow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#87CEEB;stop-opacity:0.6" />
+      <stop offset="100%" style="stop-color:#4A90E2;stop-opacity:0.3" />
+    </linearGradient>
+  </defs>
+  
+  <!-- 白色圆角矩形背景 -->
+  <rect x="4" y="4" width="56" height="56" rx="12" ry="12" 
+        fill="#FFFFFF" stroke="#E0E0E0" stroke-width="0.5" opacity="0.95"/>
+  
+  <!-- 鼠标主体 -->
+  <path d="M 24 16 Q 24 12 28 12 L 36 12 Q 40 12 40 16 L 40 40 Q 40 44 36 48 L 28 48 Q 24 44 24 40 Z" 
+        fill="url(#mouseGradient)" stroke="#1A4A6B" stroke-width="1"/>
+  
+  <!-- 滚轮 -->
+  <rect x="30" y="18" width="4" height="8" rx="2" ry="2" 
+        fill="#FFFFFF" opacity="0.9" stroke="#2C5F8A" stroke-width="0.5"/>
+  
+  <!-- 滚轮线 -->
+  <line x1="32" y1="20" x2="32" y2="24" stroke="#2C5F8A" stroke-width="1" stroke-linecap="round"/>
+  
+  <!-- 左侧水流 -->
+  <path d="M 16 20 Q 18 30 16 40 Q 14 50 16 60" 
+        fill="none" stroke="url(#waterFlow)" stroke-width="2" opacity="0.7"/>
+  
+  <!-- 右侧水流 -->
+  <path d="M 48 20 Q 46 30 48 40 Q 50 50 48 60" 
+        fill="none" stroke="url(#waterFlow)" stroke-width="2" opacity="0.7"/>
+  
+  <!-- 中央流线 -->
+  <path d="M 32 8 L 32 14" stroke="#FFFFFF" stroke-width="1.5" opacity="0.8" stroke-linecap="round"/>
+  <path d="M 32 50 L 32 56" stroke="#FFFFFF" stroke-width="1.5" opacity="0.8" stroke-linecap="round"/>
+  
+  <!-- 按键分割 -->
+  <line x1="32" y1="16" x2="32" y2="28" stroke="#1A4A6B" stroke-width="0.5" opacity="0.5"/>
+</svg>
