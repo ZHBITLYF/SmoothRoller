@@ -7,7 +7,7 @@
     <img alt=".NET 6.0" src="https://img.shields.io/badge/.NET-6.0-512BD4?style=flat-square&logo=.net&logoColor=white" />
     <img alt="arch x64" src="https://img.shields.io/badge/arch-x64-94A3B8?style=flat-square&labelColor=334155" />
     <img alt="size <1MB" src="https://img.shields.io/badge/size-%3C1MB-8EC5FF?style=flat-square&labelColor=3B82F6" />
-    <img alt="memory <30MB" src="https://img.shields.io/badge/memory-%3C30MB-8EC5FF?style=flat-square&labelColor=3B82F6" />
+    <img alt="memory <20MB" src="https://img.shields.io/badge/memory-%3C20MB-8EC5FF?style=flat-square&labelColor=3B82F6" />
     <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-94A3B8?style=flat-square&labelColor=334155" />
   </p>
 </div>
@@ -16,12 +16,12 @@
 >
 > - 轻：发布包小于 1 MB（框架依赖单文件），启动即用，不占空间。
 > - 快：操作丝滑、响应灵敏，滚动动画顺滑不抖动。
-> - 稳：长期运行内存稳定在 30 MB 左右，GDI/句柄不攀升。
+> - 稳：长期运行内存稳定在 20 MB 左右，GDI/句柄不攀升。
 > - 省：零后台臃肿服务，按需工作，资源占用始终克制。
 >
 > 性能承诺（默认发布配置）：
 > - 包体体积：< 1 MB（非自包含）
-> - 常驻内存：< 30 MB（启动后自动收敛工作集）
+> - 常驻内存：< 20 MB（启动后自动收敛工作集）
 > - 资源管理：托盘图标与 GDI 资源全链路释放，无句柄/GDI 渗漏
 > - 使用体验：系统级平滑滚动，即装即用，毫秒级响应，动画顺滑不抖动
 >

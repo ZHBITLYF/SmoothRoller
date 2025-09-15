@@ -42,6 +42,12 @@ namespace SmoothRoller
             this.StartPosition = FormStartPosition.CenterScreen;
             this.ShowInTaskbar = false;
             
+            // 确保窗口关闭时真正关闭而不是隐藏
+            this.FormClosing += (s, e) => {
+                // 允许窗口真正关闭
+                e.Cancel = false;
+            };
+            
             var panel = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -252,6 +258,24 @@ namespace SmoothRoller
                 LoadSettings();
                 EnableEvents();
             }
+        }
+        
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                // 确保事件处理器被正确解除绑定
+                DisableEvents();
+                
+                // 清理事件引用
+                ConfigChanged = null;
+                
+                // 强制垃圾回收，立即释放内存
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+            }
+            base.Dispose(disposing);
         }
     }
 }

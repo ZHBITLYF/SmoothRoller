@@ -15,6 +15,7 @@ namespace SmoothRoller
         private SettingsForm settingsForm;
         private ScrollConfig config;
         private readonly string configPath = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "data", "config.json");
+        private Icon currentIcon; // 保存当前图标引用以便释放
         
         public SmoothRollerApp()
         {
@@ -41,6 +42,14 @@ namespace SmoothRoller
             autoStartItem.Checked = IsAutoStartEnabled();
             contextMenu.Items.Add("-");
             contextMenu.Items.Add("退出", null, OnExit);
+            
+            // 添加菜单关闭事件，强制垃圾回收
+            contextMenu.Closed += (s, e) => {
+                // 强制垃圾回收，立即释放菜单相关内存
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+            };
             
             trayIcon.ContextMenuStrip = contextMenu;
             trayIcon.DoubleClick += OnSettings;
@@ -221,6 +230,16 @@ namespace SmoothRoller
                     SaveConfiguration();
                     mouseHook.UpdateConfig(config);
                 };
+                
+                // 添加窗口关闭事件处理，确保资源正确释放
+                settingsForm.FormClosed += (s, args) => {
+                    settingsForm?.Dispose();
+                    settingsForm = null;
+                    // 强制垃圾回收，立即释放内存
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                };
             }
             else
             {
@@ -304,7 +323,14 @@ namespace SmoothRoller
             {
                 mouseHook?.Dispose();
                 trayIcon?.Dispose();
+                currentIcon?.Dispose();
                 settingsForm?.Dispose();
+                settingsForm = null;
+                
+                // 强制垃圾回收，立即释放所有资源
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
             }
             base.Dispose(disposing);
         }
