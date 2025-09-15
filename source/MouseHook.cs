@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -33,8 +35,9 @@ namespace SmoothRoller
         private double _lastFrameDistance = 0;
         
         // 缓存系统窗口检测结果，避免重复API调用
-        private static readonly ConcurrentDictionary<IntPtr, bool> _systemWindowCache = new ConcurrentDictionary<IntPtr, bool>();
-        private static readonly StringBuilder _classNameBuffer = new StringBuilder(256);
+        private static readonly ConcurrentDictionary<IntPtr, (bool isSystem, DateTime cacheTime)> _systemWindowCache = new ConcurrentDictionary<IntPtr, (bool, DateTime)>();
+        private static readonly ThreadLocal<StringBuilder> _classNameBuffer = new ThreadLocal<StringBuilder>(() => new StringBuilder(128));
+        private static readonly ThreadLocal<StringBuilder> _titleBuffer = new ThreadLocal<StringBuilder>(() => new StringBuilder(128));
         private static IntPtr _lastForegroundWindow = IntPtr.Zero;
         private static bool _lastIsSystemWindow = false;
         private static DateTime _lastWindowCheck = DateTime.MinValue;
@@ -44,6 +47,13 @@ namespace SmoothRoller
         private static IntPtr _lastTargetWindow = IntPtr.Zero;
         private static DateTime _lastCursorCheck = DateTime.MinValue;
         private static readonly object _cursorCacheLock = new object();
+        
+        // 内存优化相关
+        private System.Threading.Timer _memoryCleanupTimer;
+        private static DateTime _lastCacheCleanup = DateTime.Now;
+        private const int CACHE_CLEANUP_INTERVAL_MS = 60000; // 1分钟清理一次缓存
+        private const int CACHE_ENTRY_LIFETIME_MS = 120000; // 缓存条目2分钟过期
+        private const int MAX_CACHE_ENTRIES = 50; // 最大缓存条目数
         
         public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
         
@@ -87,6 +97,9 @@ namespace SmoothRoller
         [DllImport("user32.dll")]
         private static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
         
+        [DllImport("user32.dll")]
+        private static extern bool IsWindow(IntPtr hWnd);
+        
         private const uint MOUSEEVENTF_WHEEL = 0x0800;
         
         [StructLayout(LayoutKind.Sequential)]
@@ -112,6 +125,10 @@ namespace SmoothRoller
             _currentAppConfig = config;  // 初始使用默认配置
             _proc = HookCallback;
             _scrollTimer = new System.Threading.Timer(OnScrollTimer, null, Timeout.Infinite, Timeout.Infinite);
+            
+            // 初始化内存清理定时器
+            _memoryCleanupTimer = new System.Threading.Timer(OnMemoryCleanup, null, 
+                CACHE_CLEANUP_INTERVAL_MS, CACHE_CLEANUP_INTERVAL_MS);
         }
         
         public void InstallHook()
@@ -148,7 +165,15 @@ namespace SmoothRoller
                         _scrollTimer?.Change(Timeout.Infinite, Timeout.Infinite);
                         _scrollTimer?.Dispose();
                         _scrollTimer = null;
+                        
+                        // 释放内存清理定时器
+                        _memoryCleanupTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+                        _memoryCleanupTimer?.Dispose();
+                        _memoryCleanupTimer = null;
                     }
+                    
+                    // 最后清理缓存
+                    CleanupExpiredCacheEntries(true);
                 }
                 _disposed = true;
             }
@@ -393,14 +418,25 @@ namespace SmoothRoller
                 if (windowUnderMouse == IntPtr.Zero)
                     return false;
                 
-                // 使用缓存避免重复检测
-                if (_systemWindowCache.TryGetValue(windowUnderMouse, out bool cached))
+                var now = DateTime.Now;
+                
+                // 使用缓存避免重复检测，同时检查缓存是否过期
+                if (_systemWindowCache.TryGetValue(windowUnderMouse, out var cached))
                 {
-                    return cached;
+                    // 检查缓存是否过期
+                    if ((now - cached.cacheTime).TotalMilliseconds < CACHE_ENTRY_LIFETIME_MS)
+                    {
+                        return cached.isSystem;
+                    }
+                    else
+                    {
+                        // 缓存过期，移除旧条目
+                        _systemWindowCache.TryRemove(windowUnderMouse, out _);
+                    }
                 }
                 
                 bool isSystem = IsSystemWindow(windowUnderMouse);
-                _systemWindowCache.TryAdd(windowUnderMouse, isSystem);
+                _systemWindowCache.TryAdd(windowUnderMouse, (isSystem, now));
                 
                 return isSystem;
             }
@@ -434,15 +470,24 @@ namespace SmoothRoller
                 return false;
             }
             
-            // 使用缓存避免重复检测
-            if (_systemWindowCache.TryGetValue(foregroundWindow, out bool cached))
+            // 使用缓存避免重复检测，同时检查缓存是否过期
+            if (_systemWindowCache.TryGetValue(foregroundWindow, out var cached))
             {
-                _lastIsSystemWindow = cached;
-                return cached;
+                // 检查缓存是否过期
+                if ((now - cached.cacheTime).TotalMilliseconds < CACHE_ENTRY_LIFETIME_MS)
+                {
+                    _lastIsSystemWindow = cached.isSystem;
+                    return cached.isSystem;
+                }
+                else
+                {
+                    // 缓存过期，移除旧条目
+                    _systemWindowCache.TryRemove(foregroundWindow, out _);
+                }
             }
             
             bool isSystem = IsSystemWindow(foregroundWindow);
-            _systemWindowCache.TryAdd(foregroundWindow, isSystem);
+            _systemWindowCache.TryAdd(foregroundWindow, (isSystem, now));
             _lastIsSystemWindow = isSystem;
             
             return isSystem;
@@ -452,11 +497,12 @@ namespace SmoothRoller
         {
             try
             {
-                // 重用StringBuilder避免频繁分配
-                _classNameBuffer.Clear();
-                if (GetClassName(hWnd, _classNameBuffer, _classNameBuffer.Capacity) > 0)
+                // 使用线程安全的StringBuilder避免频繁分配
+                var buffer = _classNameBuffer.Value;
+                buffer.Clear();
+                if (GetClassName(hWnd, buffer, buffer.Capacity) > 0)
                 {
-                    string name = _classNameBuffer.ToString();
+                    string name = buffer.ToString();
                     
                     // 系统设置界面的窗口类名通常包含这些特征
                     return name.Contains("ApplicationFrame") || 
@@ -484,10 +530,11 @@ namespace SmoothRoller
         {
             try
             {
-                _classNameBuffer.Clear();
-                if (GetClassName(hWnd, _classNameBuffer, _classNameBuffer.Capacity) > 0)
+                var buffer = _classNameBuffer.Value;
+                buffer.Clear();
+                if (GetClassName(hWnd, buffer, buffer.Capacity) > 0)
                 {
-                    string className = _classNameBuffer.ToString();
+                    string className = buffer.ToString();
                     
                     // 检测代码编辑器 - 更精确的检测逻辑
                     if (className.Contains("SunAwtFrame") ||  // IDEA主窗口 (Java Swing)
@@ -539,7 +586,8 @@ namespace SmoothRoller
         {
             try
             {
-                var titleBuffer = new StringBuilder(256);
+                var titleBuffer = _titleBuffer.Value;
+                titleBuffer.Clear();
                 if (GetWindowText(hWnd, titleBuffer, titleBuffer.Capacity) > 0)
                 {
                     string title = titleBuffer.ToString();
@@ -559,7 +607,8 @@ namespace SmoothRoller
         {
             try
             {
-                var titleBuffer = new StringBuilder(256);
+                var titleBuffer = _titleBuffer.Value;
+                titleBuffer.Clear();
                 if (GetWindowText(hWnd, titleBuffer, titleBuffer.Capacity) > 0)
                 {
                     string title = titleBuffer.ToString();
@@ -584,7 +633,8 @@ namespace SmoothRoller
         {
             try
             {
-                var titleBuffer = new StringBuilder(256);
+                var titleBuffer = _titleBuffer.Value;
+                titleBuffer.Clear();
                 if (GetWindowText(hWnd, titleBuffer, titleBuffer.Capacity) > 0)
                 {
                     string title = titleBuffer.ToString();
@@ -599,6 +649,182 @@ namespace SmoothRoller
             }
             catch { }
             return false;
+        }
+        
+        /// <summary>
+        /// 内存清理定时器回调
+        /// </summary>
+        private void OnMemoryCleanup(object state)
+        {
+            if (_disposed) return;
+            
+            try
+            {
+                // 获取清理前的内存使用情况
+                var memoryBefore = GC.GetTotalMemory(false);
+                
+                // 清理过期的缓存条目
+                CleanupExpiredCacheEntries(false);
+                
+                // 清理无效的窗口句柄缓存
+                CleanupInvalidWindowHandles();
+                
+                // 清理ThreadLocal资源
+                CleanupThreadLocalResources();
+                
+                // 根据内存使用情况决定GC策略
+                if (memoryBefore > 15 * 1024 * 1024) // 超过15MB时执行强制GC
+                {
+                    GC.Collect(2, GCCollectionMode.Forced);
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                }
+                else if (memoryBefore > 12 * 1024 * 1024) // 超过12MB时执行第1代GC
+                {
+                    GC.Collect(1, GCCollectionMode.Optimized);
+                    GC.WaitForPendingFinalizers();
+                }
+                else
+                {
+                    // 正常情况下执行第0代GC
+                    GC.Collect(0, GCCollectionMode.Optimized);
+                    GC.WaitForPendingFinalizers();
+                }
+            }
+            catch
+            {
+                // 忽略清理过程中的异常
+            }
+        }
+        
+        /// <summary>
+        /// 清理过期的缓存条目
+        /// </summary>
+        private static void CleanupExpiredCacheEntries(bool forceCleanAll)
+        {
+            try
+            {
+                var now = DateTime.Now;
+                var keysToRemove = new List<IntPtr>();
+                
+                // 如果缓存条目过多，强制清理最旧的条目
+                if (_systemWindowCache.Count > MAX_CACHE_ENTRIES)
+                {
+                    var sortedEntries = _systemWindowCache.OrderBy(kvp => kvp.Value.cacheTime).ToList();
+                    var excessCount = _systemWindowCache.Count - MAX_CACHE_ENTRIES + 10; // 多清理10个，留出缓冲
+                    
+                    for (int i = 0; i < Math.Min(excessCount, sortedEntries.Count); i++)
+                    {
+                        keysToRemove.Add(sortedEntries[i].Key);
+                    }
+                }
+                
+                // 遍历缓存，找出过期的条目
+                foreach (var kvp in _systemWindowCache)
+                {
+                    if (forceCleanAll || (now - kvp.Value.cacheTime).TotalMilliseconds > CACHE_ENTRY_LIFETIME_MS)
+                    {
+                        if (!keysToRemove.Contains(kvp.Key))
+                        {
+                            keysToRemove.Add(kvp.Key);
+                        }
+                    }
+                }
+                
+                // 移除过期的缓存条目
+                foreach (var key in keysToRemove)
+                {
+                    _systemWindowCache.TryRemove(key, out _);
+                }
+                
+                _lastCacheCleanup = now;
+            }
+            catch
+            {
+                // 忽略清理过程中的异常
+            }
+        }
+        
+        /// <summary>
+        /// 清理无效的窗口句柄缓存
+        /// </summary>
+        private static void CleanupInvalidWindowHandles()
+        {
+            try
+            {
+                var keysToRemove = new List<IntPtr>();
+                
+                // 检查缓存中的窗口句柄是否仍然有效
+                foreach (var kvp in _systemWindowCache)
+                {
+                    // 使用IsWindow API检查窗口句柄是否仍然有效
+                    if (!IsWindow(kvp.Key))
+                    {
+                        keysToRemove.Add(kvp.Key);
+                    }
+                }
+                
+                // 移除无效的窗口句柄
+                foreach (var key in keysToRemove)
+                {
+                    _systemWindowCache.TryRemove(key, out _);
+                }
+                
+                // 清理光标缓存中的无效窗口句柄
+                lock (_cursorCacheLock)
+                {
+                    if (_lastTargetWindow != IntPtr.Zero && !IsWindow(_lastTargetWindow))
+                    {
+                        _lastTargetWindow = IntPtr.Zero;
+                    }
+                }
+            }
+            catch
+            {
+                // 忽略清理过程中的异常
+            }
+        }
+        
+        /// <summary>
+        /// 清理ThreadLocal资源
+        /// </summary>
+        private static void CleanupThreadLocalResources()
+        {
+            try
+            {
+                // 清理StringBuilder缓冲区，重置容量以释放过大的内存
+                if (_classNameBuffer.IsValueCreated)
+                {
+                    var buffer = _classNameBuffer.Value;
+                    if (buffer.Capacity > 300) // 如果容量超过300字符，重新创建
+                    {
+                        buffer.Clear();
+                        buffer.Capacity = 128; // 重置为更小的容量
+                    }
+                    else
+                    {
+                        buffer.Clear();
+                    }
+                }
+                
+                if (_titleBuffer.IsValueCreated)
+                {
+                    var buffer = _titleBuffer.Value;
+                    if (buffer.Capacity > 300)
+                    {
+                        buffer.Clear();
+                        buffer.Capacity = 128;
+                    }
+                    else
+                    {
+                        buffer.Clear();
+                    }
+                }
+            }
+            catch
+            {
+                // 忽略清理过程中的异常
+            }
         }
         
         private void SendScrollEvent(int delta)

@@ -17,11 +17,18 @@ namespace SmoothRoller
         private readonly string configPath = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "data", "config.json");
         private Icon currentIcon; // 保存当前图标引用以便释放
         
+        // 内存优化相关
+        private System.Threading.Timer _gcTimer;
+        private const int GC_INTERVAL_MS = 15000; // 15秒执行一次GC
+        
         public SmoothRollerApp()
         {
             InitializeComponent();
             LoadConfiguration();
             InitializeMouseHook();
+            
+            // 初始化定时GC机制
+            _gcTimer = new System.Threading.Timer(OnPeriodicGC, null, GC_INTERVAL_MS, GC_INTERVAL_MS);
         }
         
         private void InitializeComponent()
@@ -76,20 +83,26 @@ namespace SmoothRoller
         private Icon CreateEnhancedTrayIcon()
         {
             // 基于assets中SVG设计的图标 - 与SVG文件保持一致
-            var bitmap = new Bitmap(32, 32);
-            using (var g = Graphics.FromImage(bitmap))
+            Bitmap bitmap = null;
+            Graphics g = null;
+            IntPtr hIcon = IntPtr.Zero;
+            
+            try
             {
+                bitmap = new Bitmap(32, 32);
+                g = Graphics.FromImage(bitmap);
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                 g.Clear(Color.Transparent);
                 
                 // 白色圆角矩形背景 (对应SVG中的背景)
                 using (var brush = new SolidBrush(Color.FromArgb(242, 255, 255, 255)))
+                using (var borderPen = new Pen(Color.FromArgb(224, 224, 224), 0.5f))
                 {
                     var bgRect = new Rectangle(2, 2, 28, 28);
                     using (var path = CreateRoundedRectanglePath(bgRect.X, bgRect.Y, bgRect.Width, bgRect.Height, 6))
                     {
                         g.FillPath(brush, path);
-                        g.DrawPath(new Pen(Color.FromArgb(224, 224, 224), 0.5f), path);
+                        g.DrawPath(borderPen, path);
                     }
                 }
                 
@@ -97,20 +110,22 @@ namespace SmoothRoller
                 using (var brush = new LinearGradientBrush(
                     new Point(12, 6), new Point(20, 24),
                     Color.FromArgb(74, 144, 226), Color.FromArgb(44, 95, 138)))
+                using (var borderPen = new Pen(Color.FromArgb(26, 74, 107), 0.5f))
+                using (var mousePath = CreateMousePath())
                 {
-                    var mousePath = CreateMousePath();
                     g.FillPath(brush, mousePath);
-                    g.DrawPath(new Pen(Color.FromArgb(26, 74, 107), 0.5f), mousePath);
+                    g.DrawPath(borderPen, mousePath);
                 }
                 
                 // 滚轮
                 using (var brush = new SolidBrush(Color.FromArgb(230, 255, 255, 255)))
+                using (var borderPen = new Pen(Color.FromArgb(44, 95, 138), 0.25f))
                 {
                     var wheelRect = new Rectangle(15, 9, 2, 4);
                     using (var path = CreateRoundedRectanglePath(wheelRect.X, wheelRect.Y, wheelRect.Width, wheelRect.Height, 1))
                     {
                         g.FillPath(brush, path);
-                        g.DrawPath(new Pen(Color.FromArgb(44, 95, 138), 0.25f), path);
+                        g.DrawPath(borderPen, path);
                     }
                 }
                 
@@ -142,8 +157,17 @@ namespace SmoothRoller
                     g.DrawLine(pen, 16, 4, 16, 7);
                     g.DrawLine(pen, 16, 25, 16, 28);
                 }
+                
+                // 获取图标句柄并创建Icon
+                hIcon = bitmap.GetHicon();
+                return Icon.FromHandle(hIcon);
             }
-            return Icon.FromHandle(bitmap.GetHicon());
+            finally
+            {
+                // 确保资源正确释放
+                g?.Dispose();
+                bitmap?.Dispose();
+            }
         }
         
         private GraphicsPath CreateMousePath()
@@ -169,14 +193,31 @@ namespace SmoothRoller
         private Icon CreateDefaultTrayIcon()
         {
             // 创建简单的默认图标
-            var bitmap = new Bitmap(16, 16);
-            using (var g = Graphics.FromImage(bitmap))
+            Bitmap bitmap = null;
+            Graphics g = null;
+            Font font = null;
+            IntPtr hIcon = IntPtr.Zero;
+            
+            try
             {
+                bitmap = new Bitmap(16, 16);
+                g = Graphics.FromImage(bitmap);
+                font = new Font("Arial", 8, FontStyle.Bold);
+                
                 g.Clear(Color.Transparent);
                 g.FillEllipse(Brushes.DodgerBlue, 2, 2, 12, 12);
-                g.DrawString("S", new Font("Arial", 8, FontStyle.Bold), Brushes.White, 4, 2);
+                g.DrawString("S", font, Brushes.White, 4, 2);
+                
+                hIcon = bitmap.GetHicon();
+                return Icon.FromHandle(hIcon);
             }
-            return Icon.FromHandle(bitmap.GetHicon());
+            finally
+            {
+                // 确保资源正确释放
+                font?.Dispose();
+                g?.Dispose();
+                bitmap?.Dispose();
+            }
         }
         
         private void LoadConfiguration()
@@ -317,10 +358,46 @@ namespace SmoothRoller
             }
         }
         
+        /// <summary>
+        /// 定时GC回调方法
+        /// </summary>
+        private void OnPeriodicGC(object state)
+        {
+            try
+            {
+                // 执行分代垃圾回收，优先清理短期对象
+                GC.Collect(0, GCCollectionMode.Optimized);
+                GC.WaitForPendingFinalizers();
+                
+                // 如果内存压力较大，执行完整GC
+                var memoryBefore = GC.GetTotalMemory(false);
+                if (memoryBefore > 15 * 1024 * 1024) // 超过15MB时执行完整GC
+                {
+                    GC.Collect(2, GCCollectionMode.Forced);
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                }
+                else if (memoryBefore > 12 * 1024 * 1024) // 超过12MB时执行优化GC
+                {
+                    GC.Collect(1, GCCollectionMode.Optimized);
+                    GC.WaitForPendingFinalizers();
+                }
+            }
+            catch
+            {
+                // 忽略GC过程中的异常
+            }
+        }
+        
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                // 停止并释放GC定时器
+                _gcTimer?.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+                _gcTimer?.Dispose();
+                _gcTimer = null;
+                
                 mouseHook?.Dispose();
                 trayIcon?.Dispose();
                 currentIcon?.Dispose();
