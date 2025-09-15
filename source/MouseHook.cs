@@ -178,8 +178,9 @@ namespace SmoothRoller
             {
                 if (wParam == (IntPtr)WM_MOUSEWHEEL || wParam == (IntPtr)WM_MOUSEHWHEEL)
                 {
-                    // 基于前台窗口焦点判断是否为系统窗口，避免频繁的鼠标位置检测
-                    if (IsForegroundWindowSystem())
+                    // 实时检测鼠标位置下的窗口是否为系统窗口
+                    var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+                    if (IsMouseOverSystemWindow(hookStruct.pt))
                     {
                         // 对于系统窗口，让原始滚轮事件通过，不进行平滑滚动处理
                         return CallNextHookEx(_hookID, nCode, wParam, lParam);
@@ -188,7 +189,6 @@ namespace SmoothRoller
                     // 快速检查配置状态，避免不必要的锁
                     if (_config?.EnableSmoothScroll == true)
                     {
-                        var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
                         var delta = (short)((hookStruct.mouseData >> 16) & 0xffff);
                         
                         ProcessSmoothScroll(delta, wParam == (IntPtr)WM_MOUSEHWHEEL);
@@ -378,6 +378,35 @@ namespace SmoothRoller
                 var normalizedT = (t - accelerationTime) / (1.0 - accelerationTime);
                 var decelerated = 1.0 - Math.Pow(1.0 - normalizedT, 4);
                 return accelerationTime + decelerated * (1.0 - accelerationTime);
+            }
+        }
+        
+        /// <summary>
+        /// 实时检测鼠标位置下的窗口是否为系统窗口
+        /// </summary>
+        private static bool IsMouseOverSystemWindow(POINT mousePos)
+        {
+            try
+            {
+                // 根据鼠标位置获取窗口句柄
+                IntPtr windowUnderMouse = WindowFromPoint(mousePos);
+                if (windowUnderMouse == IntPtr.Zero)
+                    return false;
+                
+                // 使用缓存避免重复检测
+                if (_systemWindowCache.TryGetValue(windowUnderMouse, out bool cached))
+                {
+                    return cached;
+                }
+                
+                bool isSystem = IsSystemWindow(windowUnderMouse);
+                _systemWindowCache.TryAdd(windowUnderMouse, isSystem);
+                
+                return isSystem;
+            }
+            catch
+            {
+                return false;
             }
         }
         
