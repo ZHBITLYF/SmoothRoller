@@ -1,3 +1,52 @@
+<div align="center">
+  <img src="assets/app-icon.svg" alt="SmoothRoller Logo" width="96" />
+  <h1>SmoothRoller</h1>
+  <p><b>轻 · 快 · 稳 · 省</b> 的 Windows 平滑滚动体验</p>
+  <p>
+    <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat-square&logo=windows&logoColor=white" />
+    <img alt=".NET 6.0" src="https://img.shields.io/badge/.NET-6.0-512BD4?style=flat-square&logo=.net&logoColor=white" />
+    <img alt="arch x64" src="https://img.shields.io/badge/arch-x64-94A3B8?style=flat-square&labelColor=334155" />
+    <img alt="size <1MB" src="https://img.shields.io/badge/size-%3C1MB-8EC5FF?style=flat-square&labelColor=3B82F6" />
+    <img alt="memory <30MB" src="https://img.shields.io/badge/memory-%3C30MB-8EC5FF?style=flat-square&labelColor=3B82F6" />
+    <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-94A3B8?style=flat-square&labelColor=334155" />
+  </p>
+</div>
+
+> 🚀 SmoothRoller — 轻、快、稳、省 的 Windows 平滑滚动体验
+>
+> - 轻：发布包小于 1 MB（框架依赖单文件），启动即用，不占空间。
+> - 快：操作丝滑、响应灵敏，滚动动画顺滑不抖动。
+> - 稳：长期运行内存稳定在 30 MB 左右，GDI/句柄不攀升。
+> - 省：零后台臃肿服务，按需工作，资源占用始终克制。
+>
+> 性能承诺（默认发布配置）：
+> - 包体体积：< 1 MB（非自包含）
+> - 常驻内存：< 30 MB（启动后自动收敛工作集）
+> - 资源管理：托盘图标与 GDI 资源全链路释放，无句柄/GDI 渗漏
+> - 使用体验：系统级平滑滚动，即装即用，毫秒级响应，动画顺滑不抖动
+>
+> 适合人群：追求“快·稳·省”的效率用户与极客，想要更接近 macOS 质感的 Windows 滚动体验。
+
+### 设计原则：轻 · 快 · 稳 · 省
+- 轻：单文件部署，零附加服务；开箱即用，最小惊扰。
+- 快：低延迟输入处理与自适应帧率，滚动手感跟手不漂移。
+- 稳：资源闭环管理与异常隔离，长时间运行不涨句柄/GDI。
+- 省：按需运行与保守后台策略，避免无谓轮询与唤醒。
+
+---
+
+## 目录
+- [功能特性](#功能特性)
+- [系统要求](#系统要求)
+- [安装使用](#安装使用)
+- [使用说明](#使用说明)
+- [技术实现](#技术实现)
+- [文件结构](#文件结构)
+- [注意事项](#注意事项)
+- [故障排除](#故障排除)
+- [许可证](#许可证)
+- [贡献](#贡献)
+
 # SmoothRoller - Windows 平滑滚动工具
 
 一个类似 SmoothRoller 的 Windows 应用程序，让 Windows 鼠标滚轮拥有像 macOS 一样的平滑滚动体验。
@@ -26,11 +75,11 @@
 ### 方法二：从源码编译
 1. 确保已安装 .NET 6.0 SDK
 2. 在项目目录下运行：
-   ```bash
+   ```powershell
    dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true
    ```
 3. 运行生成的可执行文件
-   ```bash
+   ```powershell
    dist\win-x64\SmoothRoller.exe
    ```
 4. 程序会自动最小化到系统托盘
